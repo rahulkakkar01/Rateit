@@ -1,5 +1,6 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 import { ShopOwnerEntity } from './shopowner.entity';
+import { RatingEntity } from './rating.entity';
 
 @Entity('shops')
 export class ShopEntity {
@@ -12,6 +13,36 @@ export class ShopEntity {
   @Column({ nullable: true })
   address?: string;
 
-  @ManyToOne(() => ShopOwnerEntity, (owner) => owner.id)
+  @Column({ nullable: true })
+  description?: string;
+
+  @Column({ nullable: true })
+  phone?: string;
+
+  @Column({ nullable: true })
+  email?: string;
+
+  @Column({ nullable: true })
+  openingHours?: string;
+
+  @Column({ nullable: true })
+  closingHours?: string;
+
+  @Column({ default: true })
+  isOpen: boolean;
+
+  @Column({ nullable: true })
+  image?: string;
+
+  @ManyToOne(() => ShopOwnerEntity, (owner) => owner.shops)
   owner: ShopOwnerEntity;
+
+  @OneToMany(() => RatingEntity, (rating) => rating.shop)
+  ratings: RatingEntity[];
+
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 }

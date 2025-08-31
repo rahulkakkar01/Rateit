@@ -13,27 +13,25 @@ import { AuthGuard } from '@nestjs/passport';
 import { UserService } from './user.service';
 
 @Controller('user')
-@UseGuards(AuthGuard('jwt'))
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
-
-
-  // Signup
+  // Signup (public)
   @Post('signup')
   async signup(@Body() body) {
     return await this.userService.createUser(body);
   }
 
-
-  // Logout
+  // Logout (protected)
+  @UseGuards(AuthGuard('jwt'))
   @Post('logout')
   async logout(@Request() req) {
     const userId = req.user.id;
     return await this.userService.logout(userId);
   }
 
-  // Update password
+  // Update password (protected)
+  @UseGuards(AuthGuard('jwt'))
   @Post('resetpassword')
   async updateUser(@Request() req, @Body() body) {
     if (!body.npassword || !body.opassword) {
@@ -43,36 +41,45 @@ export class UserController {
     return result;
   }
 
-  // View all stores
+  // View all stores (public)
   @Get('stores')
   async getStores(@Query('name') name?: string, @Query('address') address?: string) {
     return await this.userService.listStores({ name, address });
   }
 
-  // View store details with ratings
+  // View store details with ratings (protected)
+  @UseGuards(AuthGuard('jwt'))
   @Get('stores/:storeId')
   async getStoreDetails(@Request() req, @Param('storeId') storeId: number) {
     const userId = req.user.id;
     return await this.userService.getStoreDetails(userId, storeId);
   }
 
-  // Submit a rating
+  // Submit a rating (protected)
+  @UseGuards(AuthGuard('jwt'))
   @Post('stores/:storeId/rate')
   async submitRating(@Request() req, @Param('storeId') storeId: number, @Body() body) {
     const userId = req.user.id;
-    const value = body.value;
+    const value = body.rating; // Changed from body.value to body.rating to match frontend
     const comment = body.comment;
     return await this.userService.submitRating(userId, storeId, value, comment);
   }
 
-  // Modify submitted rating
+  // Get user's ratings (protected)
+  @UseGuards(AuthGuard('jwt'))
+  @Get('ratings')
+  async getUserRatings(@Request() req) {
+    const userId = req.user.id;
+    return await this.userService.getUserRatings(userId);
+  }
+
+  // Modify submitted rating (protected)
+  @UseGuards(AuthGuard('jwt'))
   @Post('stores/:storeId/rate/update')
   async updateRating(@Request() req, @Param('storeId') storeId: number, @Body() body) {
     const userId = req.user.id;
-    const value = body.value;
+    const value = body.rating; // Changed from body.value to body.rating to match frontend
     const comment = body.comment;
     return await this.userService.updateRating(userId, storeId, value, comment);
   }
-
-
 }

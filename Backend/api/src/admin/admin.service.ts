@@ -15,25 +15,41 @@ export class AdminService {
     private readonly shopRepository: Repository<ShopEntity>,
     @InjectRepository(ShopOwnerEntity)
     private readonly shopOwnerRepository: Repository<ShopOwnerEntity>,
+    @InjectRepository(require('../entities/rating.entity').RatingEntity)
+    private readonly ratingRepository: Repository<any>,
   ) {}
 
   async getDashboardStats() {
   const totalUsers = await this.userRepository.count();
   const totalStores = await this.shopRepository.count();
 
-  // Assuming you have a RatingEntity
-  // const totalRatings = await this.ratingRepository.count();
+  // Fetch all ratings with user and shop info
+  const ratings = await this.ratingRepository.find({ relations: ['user', 'shop'] });
+  const totalRatings = ratings.length;
+  const ratingsDetails = ratings.map(r => ({
+    id: r.id,
+    value: r.value,
+    comment: r.comment,
+    user: r.user ? { id: r.user.id, name: r.user.name, email: r.user.email } : null,
+    shop: r.shop ? { id: r.shop.id, name: r.shop.name } : null,
+    createdAt: r.createdAt
+  }));
 
   return {
     totalUsers,
     totalStores,
-    // totalRatings,
+    totalRatings,
+    ratingsDetails,
   };
 }
 
 
   async addUser(body: any) {
-    // Create and save a new user
+    // Check for duplicate email
+    const existingUser = await this.userRepository.findOne({ where: { email: body.email } });
+    if (existingUser) {
+      return { status: 'fail', message: 'User with this email already exists' };
+    }
     const hashedPassword = await bcrypt.hash(body.password, 10);
     const user = this.userRepository.create({
       name: body.name,
@@ -74,7 +90,11 @@ export class AdminService {
   }
 
   async addAdmin(body: any) {
-    // Create and save a new admin user
+    // Check for duplicate email
+    const existingAdmin = await this.userRepository.findOne({ where: { email: body.email } });
+    if (existingAdmin) {
+      return { status: 'fail', message: 'Admin with this email already exists' };
+    }
     const hashedPassword = await bcrypt.hash(body.password, 10);
     const admin = this.userRepository.create({
       name: body.name,
@@ -90,18 +110,43 @@ export class AdminService {
   async listStores(query: any) {
     // List all stores with optional filtering
     const qb = this.shopRepository.createQueryBuilder('shop')
-      .leftJoinAndSelect('shop.owner', 'owner');
+      .leftJoinAndSelect('shop.owner', 'owner')
+      .leftJoinAndSelect('shop.ratings', 'ratings')
+      .leftJoinAndSelect('ratings.user', 'user');
+      
     if (query.name) qb.andWhere('shop.name LIKE :name', { name: `%${query.name}%` });
     if (query.address) qb.andWhere('shop.address LIKE :address', { address: `%${query.address}%` });
-    // Add more filters as needed
+
     const stores = await qb.getMany();
-    // Add rating if available (assuming shop.rating exists)
-    return stores.map(store => ({
-      name: store.name,
-      address: store.address,
-      ownerEmail: store.owner?.email,
-      rating: (store as any).rating || null,
-    }));
+
+    // Calculate average ratings and map store details
+    return stores.map(store => {
+      const ratings = store.ratings || [];
+      const avgRating = ratings.length ? 
+        parseFloat((ratings.reduce((sum, r) => sum + r.value, 0) / ratings.length).toFixed(1)) : 0;
+
+      return {
+        id: store.id,
+        name: store.name,
+        address: store.address,
+        ownerEmail: store.owner?.email,
+        owner: {
+          id: store.owner?.id,
+          name: store.owner?.name,
+          email: store.owner?.email
+        },
+        rating: avgRating,
+        totalRatings: ratings.length,
+        ratings: ratings.map(r => ({
+          id: r.id,
+          value: r.value,
+          userId: r.user?.id,
+          userName: r.user?.name,
+          comment: r.comment,
+          createdAt: r.createdAt
+        }))
+      };
+    });
   }
 
   async listUsers(query: any) {

@@ -24,13 +24,17 @@ export class GlobalLoginService {
       if (!user) return { status: 'fail', message: 'Shopowner not found' };
       if (!user.password) return { status: 'fail', message: 'Password not set for shopowner' };
       if (!await bcrypt.compare(body.password, user.password)) return { status: 'fail', message: 'Invalid password' };
-    } else {
+      if (user.role !== 'shopowner') return { status: 'fail', message: 'Invalid role for this account' };
+    } else if (body.role === 'admin' || body.role === 'user') {
       user = await this.userRepository.findOne({ where: { email: body.email }, select: ['id', 'email', 'password', 'role'] });
       if (!user) return { status: 'fail', message: 'User not found' };
       if (!user.password) return { status: 'fail', message: 'Password not set for user' };
       if (!await bcrypt.compare(body.password, user.password)) return { status: 'fail', message: 'Invalid password' };
+      if (user.role !== body.role) return { status: 'fail', message: 'Invalid role for this account' };
+    } else {
+      return { status: 'fail', message: 'Invalid role specified' };
     }
-    const payload = { sub: user.id, email: user.email, role: body.role };
+    const payload = { sub: user.id, email: user.email, role: user.role };
     const accessToken = this.jwtService.sign(payload);
     return { status: 'success', accessToken, user, role: body.role };
   }

@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
+import { ShopEntity } from './shop.entity';
 
 @Entity('shopowner')
 export class ShopOwnerEntity {
@@ -19,5 +20,8 @@ export class ShopOwnerEntity {
 
   @Column({ default: 'shopowner' })
   role: string;
+
+  @OneToMany(() => ShopEntity, (shop) => shop.owner)
+  shops: ShopEntity[];
 }
 

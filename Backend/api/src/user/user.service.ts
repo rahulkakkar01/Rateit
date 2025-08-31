@@ -166,58 +166,225 @@ async saveUser(body) {
   }
    // Submit a rating for a store
   async submitRating(userId: number, storeId: number, value: number, comment?: string) {
-    if (!value || value < 1 || value > 5) {
-      return { status: 'fail', message: 'Rating value must be between 1 and 5' };
+    try {
+      if (!value || value < 1 || value > 5) {
+        throw new BadRequestException('Rating value must be between 1 and 5');
+      }
+
+      const user = await this.userRepository.findOne({ where: { id: userId } });
+      const shop = await this.shopRepository.findOne({ 
+        where: { id: storeId },
+        relations: ['ratings', 'owner']
+      });
+
+      if (!user || !shop) {
+        throw new NotFoundException('User or store not found');
+      }
+
+      // Check if user already rated this store
+      const existing = await this.ratingRepository.findOne({ 
+        where: { 
+          user: { id: userId }, 
+          shop: { id: storeId } 
+        } 
+      });
+
+      if (existing) {
+        throw new BadRequestException('You have already rated this store. Use update instead.');
+      }
+
+      // Create and save the new rating
+      const rating = this.ratingRepository.create({ 
+        value, 
+        comment, 
+        user, 
+        shop 
+      });
+      
+      await this.ratingRepository.save(rating);
+
+      // Get updated ratings
+      const allRatings = await this.ratingRepository.find({
+        where: { shop: { id: storeId } },
+        relations: ['user']
+      });
+
+      const avgRating = parseFloat(
+        (allRatings.reduce((sum, r) => sum + r.value, 0) / allRatings.length).toFixed(1)
+      );
+
+      return {
+        status: 'success',
+        rating: {
+          id: rating.id,
+          value: rating.value,
+          comment: rating.comment,
+          userId: user.id,
+          userName: user.name,
+          storeId: shop.id,
+          storeName: shop.name,
+          createdAt: rating.createdAt
+        },
+        avgRating,
+        totalRatings: allRatings.length
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new Error('Failed to submit rating: ' + error.message);
     }
-    const user = await this.userRepository.findOne({ where: { id: userId } });
-    const shop = await this.shopRepository.findOne({ where: { id: storeId } });
-    if (!user || !shop) {
-      return { status: 'fail', message: 'User or store not found' };
-    }
-    // Check if user already rated this store
-    const existing = await this.ratingRepository.findOne({ where: { user: { id: userId }, shop: { id: storeId } } });
-    if (existing) {
-      return { status: 'fail', message: 'You have already rated this store. Use update instead.' };
-    }
-    const rating = this.ratingRepository.create({ value, comment, user, shop });
-    await this.ratingRepository.save(rating);
-    return { status: 'success', rating };
   }
 
-  // Update submitted rating
+  // Get all ratings submitted by a user
+  async getUserRatings(userId: number) {
+    try {
+      const ratings = await this.ratingRepository.createQueryBuilder('rating')
+        .leftJoinAndSelect('rating.shop', 'shop')
+        .leftJoinAndSelect('shop.owner', 'owner')
+        .leftJoinAndSelect('shop.ratings', 'shopRatings')
+        .where('rating.user.id = :userId', { userId })
+        .orderBy('rating.createdAt', 'DESC')
+        .getMany();
+
+      return ratings.map(rating => {
+        const shop = rating.shop;
+        const shopRatings = shop?.ratings || [];
+        const avgShopRating = shopRatings.length ? 
+          parseFloat((shopRatings.reduce((sum, r) => sum + r.value, 0) / shopRatings.length).toFixed(1)) : 0;
+
+        return {
+          id: rating.id,
+          value: rating.value,
+          comment: rating.comment || '',
+          createdAt: rating.createdAt,
+          store: {
+            id: shop?.id,
+            name: shop?.name || '',
+            address: shop?.address || '',
+            rating: avgShopRating,
+            totalRatings: shopRatings.length,
+            owner: shop?.owner ? {
+              id: shop.owner.id,
+              name: shop.owner.name || '',
+              email: shop.owner.email || ''
+            } : null
+          }
+        };
+      });
+    } catch (error) {
+      console.error('Failed to get user ratings:', error);
+      throw new Error('Failed to get user ratings: ' + error.message);
+    }
+  }
+
   async updateRating(userId: number, storeId: number, value: number, comment?: string) {
     if (!value || value < 1 || value > 5) {
       return { status: 'fail', message: 'Rating value must be between 1 and 5' };
     }
-    const rating = await this.ratingRepository.findOne({ where: { user: { id: userId }, shop: { id: storeId } } });
-    if (!rating) {
-      return { status: 'fail', message: 'No existing rating found for this store by this user.' };
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const rating = await this.ratingRepository.findOne({ 
+        where: { 
+          user: { id: userId }, 
+          shop: { id: storeId } 
+        },
+        relations: ['shop']
+      });
+
+      if (!rating) {
+        return { status: 'fail', message: 'No existing rating found for this store by this user.' };
+      }
+
+      // Update the rating
+      rating.value = value;
+      rating.comment = comment;
+      await this.ratingRepository.save(rating);
+
+      // Recalculate average rating
+      const allRatings = await this.ratingRepository.find({
+        where: { shop: { id: storeId } }
+      });
+
+      const avgRating = allRatings.reduce((sum, r) => sum + r.value, 0) / allRatings.length;
+
+      await queryRunner.commitTransaction();
+
+      return { 
+        status: 'success', 
+        rating,
+        avgRating,
+        totalRatings: allRatings.length
+      };
+
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw new Error('Failed to update rating');
+    } finally {
+      await queryRunner.release();
     }
-    rating.value = value;
-    rating.comment = comment;
-    await this.ratingRepository.save(rating);
-    return { status: 'success', rating };
   }
 
   async listStores(query: { name?: string; address?: string }) {
-    const qb = this.shopRepository.createQueryBuilder('shop');
-    if (query.name) qb.andWhere('shop.name LIKE :name', { name: `%${query.name}%` });
-    if (query.address) qb.andWhere('shop.address LIKE :address', { address: `%${query.address}%` });
-    const stores = await qb.getMany();
-
-    // Optionally, fetch ratings for each store
-    const result: { id: number; name: string; address?: string; avgRating: number | null }[] = [];
-    for (const store of stores) {
-      const ratings = await this.ratingRepository.find({ where: { shop: { id: store.id } } });
-      const avgRating = ratings.length ? (ratings.reduce((sum, r) => sum + r.value, 0) / ratings.length) : null;
-      result.push({
-        id: store.id,
-        name: store.name,
-        address: store.address,
-        avgRating,
+    try {
+      // Use find with relations instead of query builder for simpler query
+      const stores = await this.shopRepository.find({
+        relations: {
+          owner: true,
+          ratings: {
+            user: true
+          }
+        },
+        order: {
+          id: 'ASC'
+        }
       });
+
+      // Filter stores if query parameters are provided
+      let filteredStores = stores;
+      if (query?.name || query?.address) {
+        filteredStores = stores.filter(store => {
+          const nameMatch = !query.name || (store.name && store.name.toLowerCase().includes(query.name.toLowerCase()));
+          const addressMatch = !query.address || (store.address && store.address.toLowerCase().includes(query.address.toLowerCase()));
+          return nameMatch && addressMatch;
+        });
+      }
+
+      // Map and format the response
+      return filteredStores.map(store => {
+        const ratings = store.ratings || [];
+        const avgRating = ratings.length ? 
+          parseFloat((ratings.reduce((sum, r) => sum + r.value, 0) / ratings.length).toFixed(1)) : 0;
+
+        return {
+          id: store.id,
+          name: store.name,
+          address: store.address,
+          owner: {
+            id: store.owner?.id,
+            name: store.owner?.name,
+            email: store.owner?.email
+          },
+          rating: avgRating,
+          totalRatings: ratings.length,
+          ratings: ratings.map(r => ({
+            id: r.id,
+            value: r.value,
+            userId: r.user?.id,
+            userName: r.user?.name,
+            comment: r.comment,
+            createdAt: r.createdAt
+          }))
+        };
+      });
+    } catch (error) {
+      console.error('Error in listStores:', error);
+      throw new Error(`Failed to list stores: ${error.message}`);
     }
-    return result;
   }
   }
 
