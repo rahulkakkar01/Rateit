@@ -7,12 +7,9 @@ export default function SignupPage() {
     name: "", 
     email: "", 
     password: "", 
-    address: "",
-    storeName: "",
-    storeAddress: ""
+    address: ""
   });
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
-  const [role, setRole] = useState("user");
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -37,18 +34,7 @@ export default function SignupPage() {
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) return;
     try {
-      if (role === 'shopowner') {
-        await api.post("/auth/register-shopowner", {
-          ownerName: form.name,
-          ownerEmail: form.email,
-          ownerPassword: form.password,
-          ownerAddress: form.address,
-          storeName: form.storeName,
-          storeAddress: form.storeAddress
-        });
-      } else {
-        await api.post("/auth/register", { ...form, role });
-      }
+      await api.post("/auth/register", { ...form, role: "user" });
       alert("Signup successful! Please login.");
       navigate("/login");
     } catch (err: any) {
@@ -117,51 +103,7 @@ export default function SignupPage() {
           />
           {errors.address && <span className="text-red-500 text-xs">{errors.address}</span>}
 
-          <div className="flex justify-center gap-4 my-4">
-            <button
-              type="button"
-              onClick={() => setRole('user')}
-              className={`px-6 py-2 rounded-full ${
-                role === 'user' 
-                  ? 'bg-blue-500 text-white' 
-                  : 'bg-gray-100 text-gray-600'
-              }`}
-            >
-              Register as User
-            </button>
-            <button
-              type="button"
-              onClick={() => setRole('shopowner')}
-              className={`px-6 py-2 rounded-full ${
-                role === 'shopowner' 
-                  ? 'bg-blue-500 text-white' 
-                  : 'bg-gray-100 text-gray-600'
-              }`}
-            >
-              Register as Shop Owner
-            </button>
-          </div>
 
-          {role === 'shopowner' && (
-            <>
-              <input
-                type="text"
-                placeholder="Store Name"
-                value={form.storeName}
-                onChange={(e) => setForm({ ...form, storeName: e.target.value })}
-                className="input w-full p-4 rounded-full border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-300 text-lg"
-                required={role === 'shopowner'}
-              />
-              <input
-                type="text"
-                placeholder="Store Address"
-                value={form.storeAddress}
-                onChange={(e) => setForm({ ...form, storeAddress: e.target.value })}
-                className="input w-full p-4 rounded-full border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-300 text-lg"
-                required={role === 'shopowner'}
-              />
-            </>
-          )}
           <button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-cyan-400 text-white font-semibold py-3 rounded-full text-lg shadow hover:from-blue-600 hover:to-cyan-500 transition">Sign Up</button>
         </form>
         <div className="mt-4 flex flex-col items-center gap-2">

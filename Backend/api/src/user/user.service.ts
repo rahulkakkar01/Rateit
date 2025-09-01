@@ -13,6 +13,7 @@ import { UserEntity } from '../entities/user.entity';
 import { refreshTokenEntity } from 'src/entities/refresh.entity';
 import { RatingEntity } from '../entities/rating.entity';
 import { ShopEntity } from '../entities/shop.entity';
+import { ShopOwnerEntity } from '../entities/shopowner.entity';
 import { In } from 'typeorm';
 const saltRounds = 10;
 
@@ -27,22 +28,54 @@ export class UserService {
     @InjectRepository(refreshTokenEntity) private readonly refreshTokenRepository: Repository<refreshTokenEntity>,
     @InjectRepository(RatingEntity) private readonly ratingRepository: Repository<RatingEntity>,
     @InjectRepository(ShopEntity) private readonly shopRepository: Repository<ShopEntity>,
+    @InjectRepository(ShopOwnerEntity) private readonly shopOwnerRepository: Repository<ShopOwnerEntity>,
     private readonly dataSource: DataSource,
   ) {}
  
+
+  async validateUser(email: string, password: string, role?: string) {
+    let user;
+    try {
+      if (role === 'shopowner') {
+        user = await this.shopOwnerRepository.findOne({ 
+          where: { email },
+          select: ['id', 'email', 'password', 'role', 'name', 'address']
+        });
+      } else {
+        user = await this.userRepository.findOne({ 
+          where: { email },
+          select: ['id', 'email', 'password', 'role', 'name', 'address']
+        });
+      }
+
+      if (!user) {
+        return null;
+      }
+
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (!isPasswordValid) {
+        return null;
+      }
+
+      return user;
+    } catch (error) {
+      console.error('Validate user error:', error);
+      return null;
+    }
+  }
 
   async createUser(body) {
     if (!body.email || !body.password) {
       return { status: 'fail', message: 'Email and password are required' };
     }
     let user = new UserEntity();
-  user.email = body.email;
-  user.password = await bcrypt.hash(body.password, saltRounds);
-  user.name = body.name;
-  user.role = body.role ? body.role : 'user';
-  user = await this.userRepository.save(user);
-  user.password = '';
-  return user;
+    user.email = body.email;
+    user.password = await bcrypt.hash(body.password, saltRounds);
+    user.name = body.name;
+    user.role = body.role ? body.role : 'user';
+    user = await this.userRepository.save(user);
+    user.password = '';
+    return user;
   }
 
   async getUser(email: string) {
@@ -61,13 +94,52 @@ async saveUser(body) {
       return { status: 'fail', message: 'Email and password are required' };
     }
     let user = new UserEntity();
-  user.email = body.email;
-  user.password = await bcrypt.hash(body.password, saltRounds);
-  user.name = body.name;
-  user.role = body.role ? body.role : 'user';
-  user = await this.userRepository.save(user);
-  user.password = '';
-  return user;
+    user.email = body.email;
+    user.password = await bcrypt.hash(body.password, saltRounds);
+    user.name = body.name;
+    user.role = body.role ? body.role : 'user';
+    user = await this.userRepository.save(user);
+    user.password = '';
+    return user;
+  }
+
+  async saveShopOwner(shopOwnerData: any) {
+    if (!shopOwnerData.email || !shopOwnerData.password) {
+      return { status: 'fail', message: 'Email and password are required' };
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Create shop owner
+      let owner = new ShopOwnerEntity();
+      owner.email = shopOwnerData.email;
+      owner.password = await bcrypt.hash(shopOwnerData.password, saltRounds);
+      owner.name = shopOwnerData.name;
+      owner.role = 'shopowner';
+      owner.shops = [];
+      owner = await queryRunner.manager.save(owner);
+
+      // Create associated shop
+      const shop = new ShopEntity();
+      shop.name = shopOwnerData.storeName;
+      shop.address = shopOwnerData.storeAddress;
+      shop.owner = owner;
+      await queryRunner.manager.save(shop);
+      
+      owner.shops.push(shop);
+
+      await queryRunner.commitTransaction();
+      owner.password = '';
+      return owner;
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw new ConflictException('Failed to create shop owner');
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   async resetPass(email, body) {

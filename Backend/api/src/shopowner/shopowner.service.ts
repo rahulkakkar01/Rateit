@@ -21,12 +21,28 @@ export class ShopOwnerService {
 	) {}
 	// Update password for shopowner
 	async updatePassword(ownerId: number, oldPassword: string, newPassword: string) {
-		const owner = await this.shopOwnerRepository.findOne({ where: { id: ownerId } });
-		if (!owner) return { status: 'fail', message: 'Owner not found' };
-		if (owner.password !== oldPassword) return { status: 'fail', message: 'Old password incorrect' };
-		owner.password = newPassword;
-		await this.shopOwnerRepository.save(owner);
-		return { status: 'success', message: 'Password updated' };
+		try {
+			const owner = await this.shopOwnerRepository.findOne({ where: { id: ownerId } });
+			if (!owner) {
+				return { status: 'fail', message: 'Owner not found' };
+			}
+
+			// Verify old password
+			const isOldPasswordValid = await bcrypt.compare(oldPassword, owner.password);
+			if (!isOldPasswordValid) {
+				return { status: 'fail', message: 'Current password is incorrect' };
+			}
+
+			// Hash new password
+			const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+			owner.password = hashedNewPassword;
+			await this.shopOwnerRepository.save(owner);
+
+			return { status: 'success', message: 'Password updated successfully' };
+		} catch (error) {
+			console.error('Password update error:', error);
+			return { status: 'fail', message: 'Failed to update password' };
+		}
 	}
 
 

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import api from "../api/axios";
-import { useAuth } from "../context/authcontext";
+import { useAuth } from "../context/authcontext.tsx";
 import { useNavigate } from "react-router-dom";
 
 interface RoleButtonProps {
@@ -36,34 +36,57 @@ const LoginPage: React.FC = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  // No need for role conversion anymore
-  const getBackendRole = (frontendRole: string) => frontendRole;
+  const getBackendRole = (frontendRole: string) => {
+    // Convert frontend role to match backend role
+    switch(frontendRole.toLowerCase()) {
+      case 'shop owner':
+        return 'shopowner';
+      default:
+        return frontendRole.toLowerCase();
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrors({}); // Clear previous errors
     const newErrors: { [key: string]: string } = {};
+    
     // Email validation
     if (!/^\S+@\S+\.\S+$/.test(email)) {
       newErrors.email = "Invalid email address.";
     }
-    // Password: 8-16, 1 uppercase, 1 special
-    if (!/^.*[A-Z].*$/.test(password) || !/^.*[^A-Za-z0-9].*$/.test(password) || password.length < 8 || password.length > 16) {
-      newErrors.password = "Password must be 8-16 chars, include uppercase & special char.";
+    
+    // Basic password validation for login
+    if (!password || password.length < 1) {
+      newErrors.password = "Password is required.";
     }
+    
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) return;
     try {
       // Convert role before sending to backend
       const loginRole = getBackendRole(role);
-      const res = await api.post("/auth/login", { email, password, role: loginRole });
       
-      if (!res.data || !res.data.accessToken) {
-        throw new Error("Invalid response format: missing access token");
+      const res = await api.post("/auth/login", { 
+        email, 
+        password, 
+        role: loginRole 
+      });
+      
+      if (!res.data) {
+        throw new Error("No response received from server");
       }
       
       if (res.data.status === 'fail') {
         setErrors({
-          auth: res.data.message
+          auth: res.data.message || 'Login failed'
+        });
+        return;
+      }
+
+      if (!res.data.accessToken) {
+        setErrors({
+          auth: "Invalid response: missing access token"
         });
         return;
       }
@@ -71,10 +94,10 @@ const LoginPage: React.FC = () => {
       const token = res.data.accessToken;
       const serverRole = res.data.role;
 
-      // Compare server role with expected role
+      // More specific error message for role mismatch
       if (serverRole !== loginRole) {
         setErrors({
-          auth: `You don't have permission to access the ${role} panel. Your account is registered as ${serverRole}.`
+          auth: `This account is registered as a ${serverRole}. Please select the correct role and try again.`
         });
         return;
       }

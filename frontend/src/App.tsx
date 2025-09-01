@@ -5,9 +5,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import AdminRatingsPage from "./pages/AdminRatingsPage";
 import UserDashboard from "./pages/UserDashboard";
 import StoreOwnerDashboard from "./pages/StoreOwnerDashboard";
-
-import AuthProvider from "./context/authcontext";
-import { useAuth } from "./context/authcontext";
+import { useAuth, AuthProvider } from "./context/authcontext.tsx";
 
 function PrivateRoute({ children, role }: { children: React.ReactElement, role?: string }) {
   const { user } = useAuth();

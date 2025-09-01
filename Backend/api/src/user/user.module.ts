@@ -8,10 +8,11 @@ import { AuthModule } from 'src/auth/auth.module';
 import { JwtModule } from '@nestjs/jwt';
 import { RatingEntity } from 'src/entities/rating.entity';
 import { ShopEntity } from 'src/entities/shop.entity';
+import { ShopOwnerEntity } from 'src/entities/shopowner.entity';
 
 @Module({
     imports: [
-  TypeOrmModule.forFeature([UserEntity, refreshTokenEntity,RatingEntity,ShopEntity]),
+  TypeOrmModule.forFeature([UserEntity, refreshTokenEntity, RatingEntity, ShopEntity, ShopOwnerEntity]),
       JwtModule.register({
         secret: process.env.SECRET_KEY,
     signOptions: { expiresIn: '3600s' },
