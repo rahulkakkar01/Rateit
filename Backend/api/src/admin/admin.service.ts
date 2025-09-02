@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserEntity } from '../entities/user.entity';
@@ -108,16 +108,43 @@ export class AdminService {
   }
 
   async listStores(query: any) {
-    // List all stores with optional filtering
     const qb = this.shopRepository.createQueryBuilder('shop')
       .leftJoinAndSelect('shop.owner', 'owner')
       .leftJoinAndSelect('shop.ratings', 'ratings')
       .leftJoinAndSelect('ratings.user', 'user');
-      
-    if (query.name) qb.andWhere('shop.name LIKE :name', { name: `%${query.name}%` });
-    if (query.address) qb.andWhere('shop.address LIKE :address', { address: `%${query.address}%` });
 
-    const stores = await qb.getMany();
+    // Search functionality
+    if (query.search) {
+      qb.andWhere(
+        'LOWER(shop.name) LIKE LOWER(:search) OR LOWER(shop.address) LIKE LOWER(:search) OR LOWER(owner.name) LIKE LOWER(:search)',
+        { search: `%${query.search}%` }
+      );
+    }
+
+    // Rating filter
+    if (query.minRating) {
+      qb.andWhere('shop.avgRating >= :minRating', { minRating: Number(query.minRating) });
+    }
+    if (query.maxRating) {
+      qb.andWhere('shop.avgRating <= :maxRating', { maxRating: Number(query.maxRating) });
+    }
+
+    // Sorting
+    const sortBy = query.sortBy || 'createdAt';
+    const order = query.order || 'DESC';
+    
+    if (sortBy === 'rating') {
+      qb.orderBy('shop.avgRating', order);
+    } else {
+      qb.orderBy(`shop.${sortBy}`, order);
+    }
+
+    // Pagination
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 10;
+    qb.skip((page - 1) * limit).take(limit);
+
+    const [stores, total] = await qb.getManyAndCount();
 
     // Calculate average ratings and map store details
     return stores.map(store => {
@@ -150,18 +177,55 @@ export class AdminService {
   }
 
   async listUsers(query: any) {
-    const qb = this.userRepository.createQueryBuilder('user');
-    if (query.name) qb.andWhere('user.name LIKE :name', { name: `%${query.name}%` });
-    if (query.email) qb.andWhere('user.email LIKE :email', { email: `%${query.email}%` });
-    if (query.address) qb.andWhere('user.address LIKE :address', { address: `%${query.address}%` });
-    if (query.role) qb.andWhere('user.role = :role', { role: query.role });
-    const users = await qb.getMany();
-    return users.map(user => ({
-      name: user.name,
-      email: user.email,
-      address: user.address,
-      role: user.role,
-    }));
+    try {
+      const qb = this.userRepository.createQueryBuilder('user');
+
+      // Search functionality
+      if (query.search) {
+        qb.where(
+          'LOWER(user.name) LIKE LOWER(:search) OR LOWER(user.email) LIKE LOWER(:search) OR LOWER(user.address) LIKE LOWER(:search)',
+          { search: `%${query.search}%` }
+        );
+      }
+
+      // Role filter
+      if (query.role) {
+        qb.andWhere('user.role = :role', { role: query.role });
+      }
+
+      // Sorting - only allow safe fields (UserEntity doesn't have createdAt column)
+      const validSortFields = ['id', 'name', 'email', 'role'];
+      const requestedSort = query.sortBy;
+      const sortBy = validSortFields.includes(requestedSort) ? requestedSort : 'id';
+      const order = (query.order || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+      qb.orderBy(`user.${sortBy}`, order);
+
+      // Pagination
+      const page = Number(query.page) || 1;
+      const limit = Number(query.limit) || 10;
+      qb.skip((page - 1) * limit).take(limit);
+
+      const [users, total] = await qb.getManyAndCount();
+
+      return {
+        users: users.map(user => ({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          address: user.address,
+          role: user.role
+        })),
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit)
+        }
+      };
+    } catch (err) {
+      console.error('admin.listUsers error:', err?.message || err);
+      throw new BadRequestException('Failed to fetch users');
+    }
   }
 
   async getUserDetails(id: number) {

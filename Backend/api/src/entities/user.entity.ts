@@ -22,4 +22,5 @@ export class UserEntity {
   role: string;
   @OneToMany(() => refreshTokenEntity, (refreshToken) => refreshToken.user)
   refreshTokens: refreshTokenEntity[];
+  createdAt: any;
 }
